@@ -1,0 +1,242 @@
+ource ~/.zshrc
+
+# これより↓に自分用の設定を書く。
+
+#gitのブランチ名やコマンドを補完できるように設定
+#fpath=($(brew --prefix)/share/zsh/site-functions $fpath)
+
+## 初期化
+autoload -U compinit
+compinit -u
+
+## 重複パスを登録しない
+typeset -U path cdpath fpath manpath
+
+## sudo用のpathを設定
+typeset -xT SUDO_PATH sudo_path
+typeset -U sudo_path
+sudo_path=({/usr/local,/usr,}/sbin(N-/))
+
+## pathを設定
+path=(~/bin(N-/) /usr/local/bin(N-/) ${path})
+
+export PATH="$PATH:$HOME/.rvm/bin" # Add RVM to PATH for scripting
+export LANG=ja_JP.UTF-8  # 文字コードをUTF-8に設定
+export KCODE=u           # KCODEにUTF-8を設定
+export AUTOFEATURE=true  # autotestでfeatureを動かす
+
+setopt auto_pushd        # cd時にディレクトリスタックにpushdする
+#setopt correct           # コマンドのスペルを訂正する
+setopt prompt_subst      # プロンプト定義内で変数置換やコマンド置換を扱う
+setopt notify            # バックグラウンドジョブの状態変化を即時報告する
+
+### History ###
+HISTFILE=~/.zsh_history   # ヒストリを保存するファイル
+HISTSIZE=10000            # メモリに保存されるヒストリの件数
+SAVEHIST=10000            # 保存されるヒストリの件数
+setopt bang_hist          # !を使ったヒストリ展開を行う(d)
+setopt extended_history   # ヒストリに実行時間も保存する
+setopt hist_ignore_dups   # 直前と同じコマンドはヒストリに追加しない
+setopt share_history      # 他のシェルのヒストリをリアルタイムで共有する
+setopt hist_reduce_blanks # 余分なスペースを削除してヒストリに保存する
+
+# ------------------------------
+# Look And Feel Settings
+# ------------------------------
+### Ls Color ###
+# 色の設定
+export LSCOLORS=Exfxcxdxbxegedabagacad
+# 補完時の色の設定
+export LS_COLORS='di=01;34:ln=01;35:so=01;32:ex=01;31:bd=46;34:cd=43;34:su=41;30:sg=46;30:tw=42;30:ow=43;30'
+# ZLS_COLORSとは？
+export ZLS_COLORS=$LS_COLORS
+# lsコマンド時、自動で色がつく(ls -Gのようなもの？)
+export CLICOLOR=true
+# 補完候補に色を付ける
+zstyle ':completion:*:default' list-colors ${(s.:.)LS_COLORS}
+
+## 256色生成用便利関数
+### red: 0-5
+### green: 0-5
+### blue: 0-5
+color256()
+{
+    local red=$1; shift
+    local green=$2; shift
+    local blue=$3; shift
+
+    echo -n $[$red * 36 + $green * 6 + $blue + 16]
+}
+
+fg256()
+{
+    echo -n $'\e[38;5;'$(color256 "$@")"m"
+}
+
+bg256()
+{
+    echo -n $'\e[48;5;'$(color256 "$@")"m"
+}
+
+### Prompt ###
+# プロンプトに色を付ける
+autoload -U colors; colors
+# 一般ユーザ時
+tmp_prompt="%B%F{cyan}[%n@%D{%m/%d %T}]$%f%b"
+#tmp_prompt="%{${fg[cyan]}%}%n%# %{${reset_color}%}"
+tmp_prompt2="%B%{${cyan}%}%b"
+tmp_rprompt="%{${fg[green]}%}[%~]%{${reset_color}%}"
+tmp_sprompt="%B%{${fg[yellow]}%}%r is correct? [Yes, No, Abort, Edit]:%{${reset_color}%}%b"
+
+# rootユーザ時(太字にし、アンダーバーをつける)
+if [ ${UID} -eq 0 ]; then
+  tmp_prompt="%B%U${tmp_prompt}%u%b"
+  tmp_prompt2="%B%U${tmp_prompt2}%u%b"
+  tmp_rprompt="%B%U${tmp_rprompt}%u%b"
+  tmp_sprompt="%B%U${tmp_sprompt}%u%b"
+fi
+
+PROMPT=$tmp_prompt$'\n'"%B%F{cyan}>%b"    # 通常のプロンプト
+PROMPT2=$tmp_prompt2  # セカンダリのプロンプト(コマンドが2行以上の時に表示される)
+RPROMPT=$tmp_rprompt  # 右側のプロンプト
+SPROMPT=$tmp_sprompt  # スペル訂正用プロンプト
+
+## git用 右側のプロンプト変更
+RPROMPT=$'%B`branch-status-check` %{${fg[green]}%}%~%b' # %~はpwd
+setopt prompt_subst #表示毎にPROMPTで設定されている文字列を評価する
+
+function branch-status-check {
+    local prefix branchname suffix
+        # .gitの中だから除外
+        if [[ "$PWD" =~ '/\.git(/.*)?$' ]]; then
+            return
+        fi
+        branchname=`get-branch-name`
+        # ブランチ名が無いので除外
+        if [[ -z $branchname ]]; then
+            return
+        fi
+        prefix=`get-branch-status` #色だけ返ってくる
+        suffix='%{'${reset_color}'%}'
+        echo ${prefix}${branchname}${suffix}
+}
+function get-branch-name {
+    # gitディレクトリじゃない場合のエラーは捨てます
+    echo `git rev-parse --abbrev-ref HEAD 2> /dev/null`
+}
+function get-branch-status {
+    local res color
+        output=`git status --short 2> /dev/null`
+        if [ -z "$output" ]; then
+            res=':' # status Clean
+            color='%{'${fg[green]}'%}'
+        elif [[ $output =~ "[\n]?\?\? " ]]; then
+            res='?:' # Untracked
+            color='%{'${fg[yellow]}'%}'
+        elif [[ $output =~ "[\n]? M " ]]; then
+            res='M:' # Modified
+            color='%{'${fg[red]}'%}'
+        else
+            res='A:' # Added to commit
+            color='%{'${fg[magenta]}'%}'
+        fi
+        # echo ${color}${res}'%{'${reset_color}'%}'
+        echo ${color} # 色だけ返す
+}
+
+# SSHログイン時のプロンプト
+[ -n "${REMOTEHOST}${SSH_CONNECTION}" ] &&
+  PROMPT="%{${fg[white]}%}${HOST%%.*} ${PROMPT}"
+;
+
+## コマンド実行前に呼び出されるフック。
+precmd_functions=($precmd_functions update_prompt)
+
+
+## vimを使う。
+export EDITOR=vim
+
+## 補完侯補をメニューから選択する。
+### select=2: 補完候補を一覧から選択する。
+###           ただし、補完候補が2つ以上なければすぐに補完する。
+zstyle ':completion:*:default' menu select=2
+
+## 補完候補に色を付ける。
+### "": 空文字列はデフォルト値を使うという意味。
+zstyle ':completion:*:default' list-colors ""
+
+## 補完候補がなければより曖昧に候補を探す。
+### m:{a-z}={A-Z}: 小文字を大文字に変えたものでも補完する。
+### r:|[._-]=*: 「.」「_」「-」の前にワイルドカード「*」があるものとして補完する。
+zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z} r:|[._-]=*'
+
+## 補完方法の設定。指定した順番に実行する。
+### _oldlist 前回の補完結果を再利用する。
+### _complete: 補完する。
+### _match: globを展開しないで候補の一覧から補完する。
+### _history: ヒストリのコマンドも補完候補とする。
+### _ignored: 補完候補にださないと指定したものも補完候補とする。
+### _approximate: 似ている補完候補も補完候補とする。
+### _prefix: カーソル以降を無視してカーソル位置までで補完する。
+zstyle ':completion:*' completer \
+    _oldlist _complete _match _history _ignored _approximate _prefix
+
+## 補完候補をキャッシュする。
+zstyle ':completion:*' use-cache yes
+## 詳細な情報を使う。
+zstyle ':completion:*' verbose yes
+## sudo時にはsudo用のパスも使う。
+zstyle ':completion:sudo:*' environ PATH="$SUDO_PATH:$PATH"
+
+## カーソル位置で補完する。
+setopt complete_in_word
+## globを展開しないで候補の一覧から補完する。
+setopt glob_complete
+## 補完時にヒストリを自動的に展開する。
+setopt hist_expand
+##重複した履歴を保存しない
+setopt hist_ignore_dups
+## 補完候補がないときなどにビープ音を鳴らさない。
+setopt no_beep
+## 辞書順ではなく数字順に並べる。
+setopt numeric_glob_sort
+
+## ^Dでログアウトしないようにする。
+setopt ignore_eof
+
+#Title
+precmd() {
+    [[ -t 1 ]] || return
+    case $TERM in
+        *xterm*|rxvt|(dt|k|E)term)
+        print -Pn "\e]2;[%~]\a"
+	;;
+        # screen)
+        #      #print -Pn "\e]0;[%n@%m %~] [%l]\a"
+        #      print -Pn "\e]0;[%n@%m %~]\a"
+        #      ;;
+    esac
+}
+
+# cdコマンドつけなくても移動
+setopt auto_cd
+
+# cdコマンド実行後、lsを実行する
+function cd() {
+  builtin cd $@ && ls;
+}
+
+# auto-fu.zsh
+#if [ -f ~/.zsh/auto-fu.zsh ]; then
+#source ~/.zsh/auto-fu.zsh
+#function zle-line-init () {
+#auto-fu-init
+#}
+#zle -N zle-line-init
+#fi
+
+# autojump
+if [ -f `brew --prefix`/etc/autojump ]; then
+  . `brew --prefix`/etc/autojump
+fi
+
